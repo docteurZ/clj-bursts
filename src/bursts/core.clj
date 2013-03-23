@@ -1,9 +1,5 @@
 (ns bursts.core
-  (:require [clojure.contrib.profile]))
-
-;; util for clojure array
-(defn array? [x] (-> x class .isArray))
-(defn see [x] (if (array? x) (map see x) x))
+  (:require [bursts.util :as arr]))
 
 (defn mk-gaps
   "makes the gaps data  where gaps[t] gives the length of the gap between
@@ -56,12 +52,6 @@
       (* alpha-j (Math/exp (-(* alpha-j x)))))))
 
 
-(defn min-index
-  "returns the index of the minimum number in a vector"
-  [coll]
-  (first (apply min-key second (map-indexed vector coll))))
-
-
 (defn mk-op-seq-init
   "init of the optimal sequence"
   [nrows ncols]
@@ -79,74 +69,75 @@
    that state. These numbers are stored in 'costs'.  We use 'op-seq' to keep track of
    the optimal sequences for each j."
   [max-states nb-gaps gaps tau f]
-  (let [
-        res (loop [tis (range 0 nb-gaps)
+  (let [max-states (int max-states)
+        nb-gaps (int nb-gaps)
+        res (loop [t-i (int 0)
                    costs (into [] (cons 0 (repeat (dec max-states) (Double/POSITIVE_INFINITY))))
                    op-seq (mk-op-seq-init max-states 1)]
-              (if (empty? tis)
+              (if (>= t-i nb-gaps)
                 {:cost costs
                  :optimal op-seq}
-                (let [t-i (first tis)
-                      res (loop [js (range 0 max-states)
+                (let [op-seq-prime (p :op-init (mk-op-seq-init max-states (inc t-i)))
+                      res (loop [j (int 0)
                                  costs-prime (into [] (repeat max-states (Double/NaN)))
                                  op-seq-prime (mk-op-seq-init max-states (inc t-i))]
-                            (if (empty? js)
+                            (if (>= j max-states)
                               {:cost costs-prime
                                :optimal op-seq-prime}
-                              (let [j (first js)
-                                    cost (into []
+                              (let [cost (into []
                                                (map (fn [k]
                                                       (+ (nth costs k) (tau k j)))
-                                                    (range 0 max-states)))
-                                    ell (min-index cost)
+                                                    (range (int 0) max-states)))
+                                    ell (util/min-index cost)
                                     costs-prime-j (- (nth cost ell)
                                                      (Math/log (f j (nth gaps t-i))))]
 
                                 (when (> t-i 0)
-                                  (let [col (aget op-seq ell)]
-                                    (doseq [tt (range 0 t-i)]
-                                      (aset op-seq-prime j tt (aget col tt)))))
-                                (aset op-seq-prime j t-i j)
-                                (recur (rest js)
+                                  (doseq [tt (range 0 t-i)]
+                                    (arr/deep-aset doubles op-seq-prime j tt
+                                                   (arr/deep-aget doubles op-seq ell tt))))
+                                (arr/deep-aset doubles op-seq-prime j t-i j)
+                                (recur (inc j)
                                        (assoc costs-prime j costs-prime-j)
-                                       op-seq-prime ))))]
-                  (recur (rest tis) (:cost res) (:optimal res)))))]
+                                       op-seq-prime))))]
+                  (recur (inc t-i) (:cost res) (:optimal res)))))]
     ;; extract the state sequence with the minimum final cost
     (let [j (min-index (:cost res))]
-      (into [] (seq (aget (:optimal res) j))))))
+      (into [] (-> #^objects (:optimal res)
+                   (#^doubles aget j)
+                   seq)))))
 
 
 (defn compute-ouput-nb-entries
   "compute the number of entries we will need in the output"
   [op-seq nb-gaps]
-  (loop [nb 0
-         prev -1
-         tis (range 0 nb-gaps)]
-    (if (empty? tis)
+  (loop [t (int 0)
+         nb 0
+         prev -1]
+    (if (>= t nb-gaps)
       nb
-      (let [t (first tis)
-            op-seq-t (nth op-seq t)
+      (let [op-seq-t (nth op-seq t)
             nb* (if (> op-seq-t prev)
                   (+ nb (- op-seq-t prev))
                   nb)]
-        (recur nb* op-seq-t (rest tis))))))
+        (recur (inc t) nb* op-seq-t)))))
 
 (defn mk-bursts
   "run through the state sequence, and pull out the durations of all the
    intervals for which the system is at or above a given state greater
    than 1. 'track' keeps track of which bursts are currently open"
   [nb-burst opt-seq offsets]
-  (let [res
-        (loop [tis (range 0  (dec (count offsets)))
+  (let [t-imax (dec (count offsets))
+        res
+        (loop [t (int 0)
                burst-counter -1
                bursts []
                stack-counter -1
                stack (into [] (repeat nb-burst (Double/NaN)))
                prev -1]
-          (if (empty? tis)
+          (if (>= t t-imax)
             [bursts stack-counter stack]
-            (let [t (first tis)
-                  num-level (Math/abs (- (nth opt-seq t) prev))
+            (let [num-level (Math/abs (- (nth opt-seq t) prev))
                   levels (range 1 (inc num-level))
                   res (if (> (nth opt-seq t) prev)
                         ;; level opened
@@ -184,13 +175,13 @@
                                      (dec stack-counter*)
                                      stack*)))))]
               (if res
-                (recur (rest tis)
+                (recur (inc t)
                        (nth res 1)
                        (nth res 0)
                        (nth res 3)
                        (nth res 2)
                        (nth opt-seq t))
-                (recur (rest tis)
+                (recur (inc t)
                        burst-counter
                        bursts
                        stack-counter
@@ -214,26 +205,18 @@
   [offsets {:keys [scaling gamma] :or {:scaling 2 :gamma 1}}]
   (let [offsets (into [] (sort offsets))
         gaps (mk-gaps offsets)
-        ;_ (println "gaps:" gaps)
         sum-gaps (apply + gaps)
-        ;_ (println "sum gaps:" sum-gaps)
         nb-gaps (count gaps)
-        ;_ (println "nb-gaps:" nb-gaps)
         ghat (/ sum-gaps nb-gaps)
-        ;_ (println "ghat:" ghat)
         nb-states-max (upper-bound-of-nb-states gaps sum-gaps scaling)
-        ;_ (println "max states:" nb-states-max)
         gamma-logn (* gamma (Math/log nb-gaps))
-        ;_ (println gamma-logn)
         tau-f (tau gamma-logn)
         density-f (f (mk-aphas scaling ghat nb-states-max))
-        optimal (optimal-state-sequence nb-states-max nb-gaps gaps tau-f density-f)
-        ;_ (println "optimal" optimal)
+        optimal  (optimal-state-sequence nb-states-max nb-gaps gaps tau-f density-f)
         nb-out-entries (compute-ouput-nb-entries optimal nb-gaps)
-        ;_ (println "entries:" nb-out-entries)
         bursts (mk-bursts nb-out-entries optimal offsets)]
     {:burst bursts
-     :gaps gaps
+     :nb-gaps nb-gaps
      :max-states nb-states-max
      :out-entries nb-out-entries}))
 
