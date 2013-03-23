@@ -77,7 +77,7 @@
               (if (>= t-i nb-gaps)
                 {:cost costs
                  :optimal op-seq}
-                (let [op-seq-prime (p :op-init (mk-op-seq-init max-states (inc t-i)))
+                (let [op-seq-prime (mk-op-seq-init max-states (inc t-i))
                       res (loop [j (int 0)
                                  costs-prime (into [] (repeat max-states (Double/NaN)))
                                  op-seq-prime (mk-op-seq-init max-states (inc t-i))]
@@ -88,7 +88,7 @@
                                                (map (fn [k]
                                                       (+ (nth costs k) (tau k j)))
                                                     (range (int 0) max-states)))
-                                    ell (util/min-index cost)
+                                    ell (arr/min-index cost)
                                     costs-prime-j (- (nth cost ell)
                                                      (Math/log (f j (nth gaps t-i))))]
 
@@ -102,7 +102,7 @@
                                        op-seq-prime))))]
                   (recur (inc t-i) (:cost res) (:optimal res)))))]
     ;; extract the state sequence with the minimum final cost
-    (let [j (min-index (:cost res))]
+    (let [j (arr/min-index (:cost res))]
       (into [] (-> #^objects (:optimal res)
                    (#^doubles aget j)
                    seq)))))
