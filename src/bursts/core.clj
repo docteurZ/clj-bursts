@@ -111,16 +111,17 @@
 (defn compute-ouput-nb-entries
   "compute the number of entries we will need in the output"
   [op-seq nb-gaps]
-  (loop [t (int 0)
-         nb 0
-         prev -1]
-    (if (>= t nb-gaps)
-      nb
-      (let [op-seq-t (nth op-seq t)
-            nb* (if (> op-seq-t prev)
-                  (+ nb (- op-seq-t prev))
-                  nb)]
-        (recur (inc t) nb* op-seq-t)))))
+  (let [part-states (partition-by identity op-seq)]
+    (loop [part-states (partition-by identity op-seq)
+           nb (int 0)
+           prev (int -1)]
+      (if (empty? part-states)
+        nb
+        (let [val-state (int (first (first part-states)))
+              nb* (if (> val-state prev)
+                    (+ nb (- val-state prev))
+                    nb)]
+          (recur (rest part-states) nb* val-state))))))
 
 (defn mk-bursts
   "run through the state sequence, and pull out the durations of all the
@@ -130,14 +131,14 @@
   (let [t-imax (dec (count offsets))
         res
         (loop [t (int 0)
-               burst-counter -1
+               burst-counter (int -1)
                bursts []
-               stack-counter -1
+               stack-counter (int -1)
                stack (into [] (repeat nb-burst (Double/NaN)))
-               prev -1]
+               prev (int -1)]
           (if (>= t t-imax)
             [bursts stack-counter stack]
-            (let [num-level (Math/abs (- (nth opt-seq t) prev))
+            (let [num-level (Math/abs (- (int (nth opt-seq t)) prev))
                   levels (range 1 (inc num-level))
                   res (if (> (nth opt-seq t) prev)
                         ;; level opened
@@ -176,17 +177,17 @@
                                      stack*)))))]
               (if res
                 (recur (inc t)
-                       (nth res 1)
+                       (int (nth res 1))
                        (nth res 0)
-                       (nth res 3)
+                       (int (nth res 3))
                        (nth res 2)
-                       (nth opt-seq t))
+                       (int (nth opt-seq t)))
                 (recur (inc t)
                        burst-counter
                        bursts
                        stack-counter
                        stack
-                       (nth opt-seq t))))))]
+                       (int (nth opt-seq t)))))))]
     ;; end the opened bursts
     (loop [stack-counter* (nth res 1)
            bursts* (nth res 0)]
