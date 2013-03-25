@@ -1,5 +1,6 @@
 (ns bursts.core
-  (:require [bursts.util :as arr]))
+  (:require [bursts.util :as arr]
+            [clojure.tools.logging :as log]))
 
 (defn mk-gaps
   "makes the gaps data  where gaps[t] gives the length of the gap between
@@ -9,7 +10,9 @@
         gaps (into [] (map (fn [[o1 o2]]
                              (- o2 o1))
                            (partition 2 1 offsets)))]
-    gaps))
+    (if (some #(= 0 %) gaps)
+      (throw (Exception. "Input cannot contain events with zero time between!"))
+      gaps)))
 
 (defn mk-aphas
   [scaling ghat max-states]
@@ -108,20 +111,19 @@
                    seq)))))
 
 
-(defn compute-ouput-nb-entries
-  "compute the number of entries we will need in the output"
+(defn compute-nb-bursts
+  "compute the number of bursts"
   [op-seq nb-gaps]
-  (let [part-states (partition-by identity op-seq)]
-    (loop [part-states (partition-by identity op-seq)
-           nb (int 0)
-           prev (int -1)]
-      (if (empty? part-states)
-        nb
-        (let [val-state (int (first (first part-states)))
-              nb* (if (> val-state prev)
-                    (+ nb (- val-state prev))
-                    nb)]
-          (recur (rest part-states) nb* val-state))))))
+  (loop [part-states (partition-by identity op-seq)
+         nb (int 0)
+         prev (int -1)]
+    (if (empty? part-states)
+      nb
+      (let [val-state (int (first (first part-states)))
+            nb* (if (> val-state prev)
+                  (+ nb (- val-state prev))
+                  nb)]
+        (recur (rest part-states) nb* val-state)))))
 
 (defn mk-bursts
   "run through the state sequence, and pull out the durations of all the
@@ -203,21 +205,31 @@
    that take place at known times, based on an inﬁnite hidden Markov model. An optimal state
    sequence is computed that balances the total transition cost against the probability of
    the observed event timing."
-  [offsets {:keys [scaling gamma] :or {:scaling 2 :gamma 1}}]
-  (let [offsets (into [] (sort offsets))
-        gaps (mk-gaps offsets)
-        sum-gaps (apply + gaps)
-        nb-gaps (count gaps)
-        ghat (/ sum-gaps nb-gaps)
-        nb-states-max (upper-bound-of-nb-states gaps sum-gaps scaling)
-        gamma-logn (* gamma (Math/log nb-gaps))
-        tau-f (tau gamma-logn)
-        density-f (f (mk-aphas scaling ghat nb-states-max))
-        optimal  (optimal-state-sequence nb-states-max nb-gaps gaps tau-f density-f)
-        nb-out-entries (compute-ouput-nb-entries optimal nb-gaps)
-        bursts (mk-bursts nb-out-entries optimal offsets)]
-    {:burst bursts
-     :nb-gaps nb-gaps
-     :max-states nb-states-max
-     :out-entries nb-out-entries}))
+  [offsets & {:keys [scaling gamma] :or {scaling 2 gamma 1}}]
+  (try
+    (when (<= scaling 1)
+      (throw (Exception. "'scaling' must be greater then 1")))
+    (when (<= gamma 0)
+      (throw (Exception. "'gamma' must be positive")))
+    (when (empty? offsets)
+      (throw (Exception. "offsets must be non-empty")))
+
+    (let [offsets (into [] (sort offsets))
+          gaps (mk-gaps offsets)
+          sum-gaps (apply + gaps)
+          nb-gaps (count gaps)
+          ghat (/ sum-gaps nb-gaps)
+          nb-states-max (upper-bound-of-nb-states gaps sum-gaps scaling)
+          gamma-logn (* gamma (Math/log nb-gaps))
+          tau-f (tau gamma-logn)
+          density-f (f (mk-aphas scaling ghat nb-states-max))
+          optimal-seq  (optimal-state-sequence nb-states-max nb-gaps gaps tau-f density-f)
+          nb-bursts (compute-nb-bursts optimal-seq nb-gaps)
+          bursts (mk-bursts nb-bursts optimal-seq offsets)]
+      {:burst bursts
+       :nb-gaps nb-gaps
+       :max-states nb-states-max
+       :nb-bursts nb-bursts})
+    (catch Exception e
+      (log/error "[burst detection error]:" e))))
 
