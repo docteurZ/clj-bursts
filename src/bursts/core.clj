@@ -24,6 +24,7 @@
   "computes log given a val and a base"
   ([n b]
      (/ (Math/log n) (Math/log b)))
+
   ([n]
      (log-with-base n (Math/exp 1))))
 
@@ -173,7 +174,7 @@
                               (recur (rest levels*)
                                      burst-counter*
                                      (assoc-in bursts*
-                                               [(nth stack* stack-counter) :end]
+                                               [(nth stack* stack-counter*) :end]
                                                (nth offsets t))
                                      (dec stack-counter*)
                                      stack*)))))]
