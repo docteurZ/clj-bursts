@@ -1,6 +1,6 @@
 # bursts
 
-A Clojure library designed to ... well, that part is up to you.
+Kleinberg's Burst Detection Algorithm
 
 ## Usage
 
