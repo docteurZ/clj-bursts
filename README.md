@@ -1,6 +1,7 @@
 # bursts
 
-Kleinberg's Burst Detection Algorithm
+An implementation of Jon Kleinberg’s burst detection algorithm.
+Uses an inﬁnite Markov model to detect periods of increased activity in a series of discrete events with known times.
 
 ## Usage
 
